@@ -2654,7 +2654,7 @@
             document.getElementById("transactionModal").classList.add("hidden");
         }
 
-        function handleTransactionSubmit(e) {
+        async function handleTransactionSubmit(e) {
             e.preventDefault();
             const id = document.getElementById("txId").value;
             const type = document.getElementById("txType").value;
@@ -2686,7 +2686,6 @@
             if (p && type === "Ingreso") {
                 const pricing = getWholesalePricing(p, qty);
                 const typedPrice = unitPrice;
-                // Si el precio no coincide con el precio sugerido, se respeta como precio personalizado.
                 pricingMode = Math.abs(typedPrice - pricing.price) < 0.005 ? pricing.mode : "Personalizado";
                 amount = Math.round((qty * typedPrice + Number.EPSILON) * 100) / 100;
                 document.getElementById("txAmount").value = amount.toFixed(2);
@@ -2699,23 +2698,47 @@
             const oldTx = id ? transactions.find(t => t.id === id) : null;
             if (id && !oldTx) { alert("No se encontró el movimiento que intentas editar."); return; }
 
+            const txData = {
+                type, itemType, productId: prodId, concept, category, department, qty,
+                unitPrice: Math.round((unitPrice + Number.EPSILON) * 100) / 100,
+                amount, date, responsible,
+                ...(p && type === "Ingreso" ? { priceMode: pricingMode, costUnitSnapshot, grossProfit } : {})
+            };
+
+            try {
+                const currentUser = auth.currentUser;
+                if (currentUser) {
+                    const { doc, setDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+                    
+                    if (id) {
+                        await setDoc(doc(db, "usuarios", currentUser.uid, "transactions", id), txData, { merge: true });
+                    } else {
+                        const newRef = doc(collection(db, "usuarios", currentUser.uid, "transactions"));
+                        await setDoc(newRef, txData);
+                    }
+
+                    // Si involucra un producto, actualizamos su stock también en Firestore
+                    if (p) {
+                        if (type === "Ingreso") p.stock = Number(p.stock || 0) - qty;
+                        else p.stock = Number(p.stock || 0) + qty;
+                        
+                        await setDoc(doc(db, "usuarios", currentUser.uid, "inventory", p.id), { stock: p.stock }, { merge: true });
+                    }
+                }
+            } catch (err) {
+                console.error("Error al guardar transacción en Firestore:", err);
+            }
+
             if (id) {
                 const idx = transactions.findIndex(t => t.id === id);
                 if (idx !== -1) {
-                    transactions[idx] = { ...transactions[idx], id, type, itemType, productId: prodId, concept, category, department, qty, unitPrice, amount, date, responsible,
-                        ...(oldTx.priceMode ? {} : { priceMode: pricingMode }),
-                        ...(oldTx.costUnitSnapshot != null ? {} : { costUnitSnapshot, grossProfit }) };
+                    transactions[idx] = { ...transactions[idx], id, ...txData };
                 }
             } else {
-                const newTx = { id: "t_" + Date.now(), type, itemType, productId: prodId, concept, category, department, qty,
-                    unitPrice: Math.round((unitPrice + Number.EPSILON) * 100) / 100, amount, date, responsible,
-                    ...(p && type === "Ingreso" ? { priceMode: pricingMode, costUnitSnapshot, grossProfit } : {}) };
+                const newTx = { id: "t_" + Date.now(), ...txData };
                 transactions.unshift(newTx);
-                if (p) {
-                    if (type === "Ingreso") p.stock = Number(p.stock || 0) - qty;
-                    else p.stock = Number(p.stock || 0) + qty;
-                }
             }
+
             saveData();
             closeTransactionModal();
             updateDashboardData(); renderVentasTable(); renderGastosTable(); renderInventoryTable(); renderBudgetModule(); renderDepartmentModule();
@@ -2744,14 +2767,25 @@
             toggleTxTypeFields();
         }
 
-        function deleteTransaction(id) {
+        async function deleteTransaction(id) {
             if (confirm("¿Estás seguro de eliminar este registro?")) {
+                try {
+                    const currentUser = auth.currentUser;
+                    if (currentUser) {
+                        const { doc, deleteDoc } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+                        await deleteDoc(doc(db, "usuarios", currentUser.uid, "transactions", id));
+                    }
+                } catch (err) {
+                    console.error("Error al eliminar transacción de Firestore:", err);
+                }
+
                 transactions = transactions.filter(t => t.id !== id);
                 saveData();
                 updateDashboardData();
                 renderVentasTable();
                 renderGastosTable();
                 renderBudgetModule();
+                renderDepartmentModule();
             }
         }
 
@@ -2844,7 +2878,7 @@
             }
         }
 
-        function handleProductSubmit(e) {
+        async function handleProductSubmit(e) {
             e.preventDefault();
             const id = document.getElementById("prodId").value;
             const date = document.getElementById("prodDate").value || new Date().toISOString().split('T')[0];
@@ -2859,6 +2893,7 @@
             const batchQtyRaw = document.getElementById("prodBatchQty").value;
             const wholesaleRaw = document.getElementById("prodWholesalePrice").value;
             const wholesaleMinRaw = document.getElementById("prodWholesaleMin").value;
+
             if (!name || !sku || !category || !Number.isFinite(stock) || stock < 0 || !Number.isFinite(minStock) || minStock < 0 || !Number.isFinite(cost) || cost < 0 || !Number.isFinite(price) || price < 0) {
                 alert("Revisa los datos del producto: stock, costos y precios deben ser válidos y no negativos."); return;
             }
@@ -2868,17 +2903,41 @@
             if ((wholesaleRaw !== "" && wholesaleMinRaw === "") || (wholesaleRaw === "" && wholesaleMinRaw !== "") || (wholesaleRaw !== "" && (Number(wholesaleRaw) < 0 || Number(wholesaleMinRaw) < 1 || !Number.isInteger(Number(wholesaleMinRaw))))) {
                 alert("Configura juntos el precio mayorista (no negativo) y el mínimo de unidades (entero mayor que cero)."); return;
             }
+
             const batchCost = batchCostRaw === "" ? null : Number(batchCostRaw);
             const batchQty = batchQtyRaw === "" ? null : Number(batchQtyRaw);
             const calculatedCost = batchCost !== null && batchQty > 0 ? Math.round((batchCost / batchQty + Number.EPSILON) * 100) / 100 : cost;
             const wholesalePrice = wholesaleRaw === "" ? null : Number(wholesaleRaw);
             const wholesaleMin = wholesaleMinRaw === "" ? null : Number(wholesaleMinRaw);
+
+            const productData = { date, sku, name, category, stock, minStock, cost: calculatedCost, price, batchCost, batchQty, wholesalePrice, wholesaleMin };
+
+            try {
+                const currentUser = auth.currentUser;
+                if (currentUser) {
+                    const { doc, setDoc, collection } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+                    
+                    if (id) {
+                        await setDoc(doc(db, "usuarios", currentUser.uid, "inventory", id), productData, { merge: true });
+                    } else {
+                        const newRef = doc(collection(db, "usuarios", currentUser.uid, "inventory"));
+                        await setDoc(newRef, productData);
+                    }
+                }
+            } catch (err) {
+                console.error("Error al guardar en Firestore:", err);
+            }
+
             const old = id ? inventory.find(p => p.id === id) : null;
-            const product = { ...(old || {}), id: id || ("p_" + Date.now()), date, sku, name, category, stock, minStock, cost: calculatedCost, price,
-                batchCost, batchQty, wholesalePrice, wholesaleMin };
+            const product = { ...(old || {}), id: id || ("p_" + Date.now()), ...productData };
             if (id) { const idx = inventory.findIndex(p => p.id === id); if (idx !== -1) inventory[idx] = product; }
             else inventory.push(product);
-            saveData(); closeProductModal(); renderInventoryTable(); updateDashboardData(); updateCategorySelects();
+
+            saveData(); 
+            closeProductModal(); 
+            renderInventoryTable(); 
+            updateDashboardData(); 
+            updateCategorySelects();
         }
 
         function editProduct(id) {
@@ -2900,8 +2959,18 @@
             if (p.batchCost != null && p.batchQty > 0) calculateBatchUnitCost();
         }
 
-        function deleteProduct(id) {
+        async function deleteProduct(id) {
             if (confirm("¿Eliminar este producto del inventario?")) {
+                try {
+                    const currentUser = auth.currentUser;
+                    if (currentUser) {
+                        const { doc, deleteDoc } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+                        await deleteDoc(doc(db, "usuarios", currentUser.uid, "inventory", id));
+                    }
+                } catch (err) {
+                    console.error("Error al eliminar de Firestore:", err);
+                }
+
                 inventory = inventory.filter(p => p.id !== id);
                 saveData(); renderInventoryTable(); updateDashboardData();
             }
