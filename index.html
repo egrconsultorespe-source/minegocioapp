@@ -2999,10 +2999,34 @@
                 }
 
                 inventory = inventory.filter(p => p.id !== id);
-                saveData(); renderInventoryTable(); updateDashboardData();
+                saveData(); renderInventoryTable(); updateDashboardData(); updateCategorySelects();
             }
         }
 
+        function updateCategorySelects() {
+            const categories = [...new Set(transactions.map(t => t.category))].sort();
+            
+            const vCat = document.getElementById("ventasCategoryFilter");
+            const gCat = document.getElementById("gastosCategoryFilter");
+            const iCat = document.getElementById("invCategoryFilter");
+
+            if (vCat) {
+                vCat.innerHTML = '<option value="ALL">Todas las Categorías</option>' +
+                    categories.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+            }
+            if (gCat) {
+                gCat.innerHTML = '<option value="ALL">Todas las Categorías</option>' +
+                    categories.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+            }
+            if (iCat) {
+                const currentCat = iCat.value || "ALL";
+                const invCats = [...new Set(inventory.map(i => (i.category || "Sin categoría").trim()))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
+                iCat.innerHTML = '<option value="ALL">Todas las Categorías</option>' +
+                    invCats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+                iCat.value = invCats.includes(currentCat) || currentCat === "ALL" ? currentCat : "ALL";
+            }
+        }
+            
         // ADJUST BUDGET MODAL
         function openBudgetModal() {
             renderBudgetInputs();
