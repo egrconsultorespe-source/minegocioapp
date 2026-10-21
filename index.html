@@ -1797,23 +1797,19 @@
 
             if (vCat) {
                 vCat.innerHTML = '<option value="ALL">Todas las Categorías</option>' +
-                    categories.map(c => `<option value="${c}">${c}</option>`).join('');
+                    categories.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
             }
             if (gCat) {
                 gCat.innerHTML = '<option value="ALL">Todas las Categorías</option>' +
-                    categories.map(c => `<option value="${c}">${c}</option>`).join('');
+                    categories.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
             }
             if (iCat) {
-                const invCats = [...new Set(inventory.map(i => i.category))].sort();
+                const currentCat = iCat.value || "ALL";
+                const invCats = [...new Set(inventory.map(i => (i.category || "Sin categoría").trim()))].filter(Boolean).sort((a, b) => a.localeCompare(b, 'es'));
                 iCat.innerHTML = '<option value="ALL">Todas las Categorías</option>' +
-                    invCats.map(c => `<option value="${c}">${c}</option>`).join('');
+                    invCats.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('');
+                iCat.value = invCats.includes(currentCat) || currentCat === "ALL" ? currentCat : "ALL";
             }
-
-            // Update currency labels
-            document.querySelectorAll('.currency-label').forEach(el => {
-                el.innerText = appConfig.currency;
-            });
-            document.getElementById('headerMainTitle').innerText = appConfig.companyName;
         }
 
         // GET FILTERED TRANSACTIONS BY UNIVERSAL DATE RANGE
