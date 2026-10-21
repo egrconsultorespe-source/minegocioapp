@@ -3008,18 +3008,46 @@
             if(!name) return;
             if(confirm(`¿Eliminar el departamento "${name}" del presupuesto?`)) { delete departmentBudgets[name]; renderBudgetInputs(); }
         }
-        function handleBudgetSubmit(e) {
+        async function handleBudgetSubmit(e) {
             e.preventDefault();
-            const nextBudgets={};
-            document.querySelectorAll('#budgetInputsContainer .budget-row').forEach(row=>{
-                const name=row.querySelector('.budget-dept-name').value.trim(); const amount=parseFloat(row.querySelector('.budget-dept-amount').value)||0;
-                if(name) nextBudgets[name]=amount;
+            const nextBudgets = {};
+            document.querySelectorAll('#budgetInputsContainer .budget-row').forEach(row => {
+                const name = row.querySelector('.budget-dept-name').value.trim(); 
+                const amount = parseFloat(row.querySelector('.budget-dept-amount').value) || 0;
+                if(name) nextBudgets[name] = amount;
             });
-            const oldNames=Object.keys(departmentBudgets);
-            Object.keys(departmentsInfo).forEach(d=>{ if(!Object.prototype.hasOwnProperty.call(nextBudgets,d) && oldNames.includes(d)) delete departmentBudgets[d]; });
-            departmentBudgets=nextBudgets;
-            Object.keys(departmentBudgets).forEach(d=>{ if(!departmentsInfo[d]) departmentsInfo[d]={manager:'',members:[],desc:'Nuevo departamento'}; normalizeDepartmentInfo(departmentsInfo[d]); });
-            saveData(); closeBudgetModal(); renderBudgetModule(); renderDepartmentModule(); updateDashboardData(); populateTxDepartmentDropdown();
+
+            const oldNames = Object.keys(departmentBudgets);
+            Object.keys(departmentsInfo).forEach(d => { 
+                if(!Object.prototype.hasOwnProperty.call(nextBudgets, d) && oldNames.includes(d)) delete departmentBudgets[d]; 
+            });
+            
+            departmentBudgets = nextBudgets;
+            Object.keys(departmentBudgets).forEach(d => { 
+                if(!departmentsInfo[d]) departmentsInfo[d] = { manager: '', members: [], desc: 'Nuevo departamento' }; 
+                normalizeDepartmentInfo(departmentsInfo[d]); 
+            });
+
+            // Guardar presupuestos y departamentos en Firestore
+            try {
+                const currentUser = auth.currentUser;
+                if (currentUser) {
+                    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+                    
+                    // Guardamos el objeto completo de presupuestos y departamentos en un documento de configuración o dedicado
+                    await setDoc(doc(db, "usuarios", currentUser.uid, "config", "budgets"), { departmentBudgets }, { merge: true });
+                    await setDoc(doc(db, "usuarios", currentUser.uid, "config", "departments"), { departmentsInfo }, { merge: true });
+                }
+            } catch (err) {
+                console.error("Error al guardar presupuestos en Firestore:", err);
+            }
+
+            saveData(); 
+            closeBudgetModal(); 
+            renderBudgetModule(); 
+            renderDepartmentModule(); 
+            updateDashboardData(); 
+            populateTxDepartmentDropdown();
         }
 
         // DEPARTMENT MANAGEMENT
@@ -3044,33 +3072,76 @@
             row.innerHTML=`<input type="text" value="${escapeHtml(value)}" placeholder="Nombre del miembro" class="dept-member-input flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-slate-100"><button type="button" onclick="this.parentElement.remove()" class="px-3 text-rose-400 hover:text-rose-300"><i class="fa-solid fa-xmark"></i></button>`;
             wrap.appendChild(row);
         }
-        function handleDepartmentSubmit(e){
+        async function handleDepartmentSubmit(e){
             e.preventDefault();
-            const original=document.getElementById('deptOriginalName').value.trim();
-            const name=document.getElementById('deptName').value.trim();
+            const original = document.getElementById('deptOriginalName').value.trim();
+            const name = document.getElementById('deptName').value.trim();
             if(!name) return;
-            if(name!==original && departmentsInfo[name]) return alert('Ya existe un departamento con ese nombre.');
-            const members=[...document.querySelectorAll('.dept-member-input')].map(x=>x.value.trim()).filter(Boolean);
-            const manager=document.getElementById('deptManager').value.trim();
+            if(name !== original && departmentsInfo[name]) return alert('Ya existe un departamento con ese nombre.');
+            const members = [...document.querySelectorAll('.dept-member-input')].map(x => x.value.trim()).filter(Boolean);
+            const manager = document.getElementById('deptManager').value.trim();
             if(manager && !members.includes(manager)) members.unshift(manager);
-            if(original && original!==name){
-                const oldBudget=departmentBudgets[original] ?? 0; delete departmentBudgets[original];
-                departmentBudgets[name]=oldBudget;
-                Object.keys(transactions).forEach(()=>{});
-                transactions.forEach(t=>{ if(t.department===original) t.department=name; });
-            } else if(!Object.prototype.hasOwnProperty.call(departmentBudgets,name)) departmentBudgets[name]=0;
-            departmentsInfo[name]={manager,members,desc:document.getElementById('deptDesc').value.trim()};
-            if(original && original!==name) delete departmentsInfo[original];
-            saveData(); closeDepartmentModal(); renderDepartmentModule(); renderBudgetModule(); populateTxDepartmentDropdown(); updateDashboardData();
-        }
-        function deleteDepartmentFromModal(){ const name=document.getElementById('deptOriginalName').value.trim(); if(name) deleteDepartment(name); }
-        function deleteDepartment(name){
-            if(!departmentsInfo[name]) return;
-            if(!confirm(`¿Eliminar el departamento "${name}"? Sus movimientos históricos se conservarán sin cambiar.`)) return;
-            delete departmentsInfo[name]; delete departmentBudgets[name];
-            saveData(); closeDepartmentModal(); renderDepartmentModule(); renderBudgetModule(); populateTxDepartmentDropdown(); updateDashboardData();
+            
+            if(original && original !== name){
+                const oldBudget = departmentBudgets[original] ?? 0; delete departmentBudgets[original];
+                departmentBudgets[name] = oldBudget;
+                transactions.forEach(t => { if(t.department === original) t.department = name; });
+            } else if(!Object.prototype.hasOwnProperty.call(departmentBudgets, name)) departmentBudgets[name] = 0;
+            
+            departmentsInfo[name] = { manager, members, desc: document.getElementById('deptDesc').value.trim() };
+            if(original && original !== name) delete departmentsInfo[original];
+
+            // Sincronizar cambios de departamentos y presupuestos con Firestore
+            try {
+                const currentUser = auth.currentUser;
+                if (currentUser) {
+                    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+                    await setDoc(doc(db, "usuarios", currentUser.uid, "config", "budgets"), { departmentBudgets }, { merge: true });
+                    await setDoc(doc(db, "usuarios", currentUser.uid, "config", "departments"), { departmentsInfo }, { merge: true });
+                }
+            } catch (err) {
+                console.error("Error al guardar departamentos en Firestore:", err);
+            }
+
+            saveData(); 
+            closeDepartmentModal(); 
+            renderDepartmentModule(); 
+            renderBudgetModule(); 
+            populateTxDepartmentDropdown(); 
+            updateDashboardData();
         }
 
+        function deleteDepartmentFromModal(){ 
+            const name = document.getElementById('deptOriginalName').value.trim(); 
+            if(name) deleteDepartment(name); 
+        }
+
+        async function deleteDepartment(name){
+            if(!departmentsInfo[name]) return;
+            if(!confirm(`¿Eliminar el departamento "${name}"? Sus movimientos históricos se conservarán sin cambiar.`)) return;
+            
+            delete departmentsInfo[name]; 
+            delete departmentBudgets[name];
+
+            // Sincronizar la eliminación en Firestore
+            try {
+                const currentUser = auth.currentUser;
+                if (currentUser) {
+                    const { doc, setDoc } = await import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js");
+                    await setDoc(doc(db, "usuarios", currentUser.uid, "config", "budgets"), { departmentBudgets }, { merge: true });
+                    await setDoc(doc(db, "usuarios", currentUser.uid, "config", "departments"), { departmentsInfo }, { merge: true });
+                }
+            } catch (err) {
+                console.error("Error al actualizar departamentos tras eliminar en Firestore:", err);
+            }
+
+            saveData(); 
+            closeDepartmentModal(); 
+            renderDepartmentModule(); 
+            renderBudgetModule(); 
+            populateTxDepartmentDropdown(); 
+            updateDashboardData();
+        }
         // SETTINGS MODAL
         function openSettingsModal() {
             document.getElementById("settingCompanyName").value = appConfig.companyName;
@@ -3343,7 +3414,11 @@
       const app = initializeApp(firebaseConfig);
       const auth = getAuth(app);
       const db = getFirestore(app);
-
+        
+      // 👉 COLOQUEMOS ESTO AQUÍ:
+      window.auth = auth;
+      window.db = db;
+        
       window.abrirModalLogin = () => {
         document.getElementById('modal-login').classList.remove('hidden');
       };
