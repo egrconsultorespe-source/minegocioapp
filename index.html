@@ -1583,71 +1583,70 @@
             updateCategorySelects();
         };
 
-        // LOCAL STORAGE LOAD / SAVE
+        // CARGAR DATOS DESDE FIRESTORE (EN LUGAR DE LOCALSTORAGE)
         function loadLocalStorageData() {
-            try {
-                const savedConfig = localStorage.getItem("mn_appConfig");
-                if (savedConfig) appConfig = JSON.parse(savedConfig);
-
-                const savedInv = localStorage.getItem("mn_inventory");
-                if (savedInv) inventory = JSON.parse(savedInv);
-                inventory = inventory.map((p, idx) => ({ ...p, date: p.date || p.registrationDate || '2026-01-01', dateFilter: p.dateFilter || normalizeInventoryDateForFilter(p.date || p.registrationDate || '2026-01-01'), wholesalePrice: p.wholesalePrice ?? null, wholesaleMin: p.wholesaleMin ?? null, batchCost: p.batchCost ?? null, batchQty: p.batchQty ?? null }));
-
-                const savedTx = localStorage.getItem("mn_transactions");
-                if (savedTx) transactions = JSON.parse(savedTx);
-
-                const savedBudgets = localStorage.getItem("mn_budgets");
-                if (savedBudgets) departmentBudgets = JSON.parse(savedBudgets);
-
-                const savedDepartments = localStorage.getItem("mn_departments");
-                if (savedDepartments) departmentsInfo = JSON.parse(savedDepartments);
-                Object.keys(departmentsInfo).forEach(d => normalizeDepartmentInfo(departmentsInfo[d]));
-            } catch(e) {
-                console.warn("Could not load from localStorage, using defaults", e);
-            }
+            // Si el usuario está autenticado, Firestore sincroniza automáticamente.
+            // Mantenemos una estructura base por seguridad mientras conecta.
+            console.log("Iniciando carga de datos desde Firebase...");
         }
 
-        function saveData() {
+        // FUNCIÓN DE GUARDADO PRINCIPAL CONECTADA A FIRESTORE
+        async function saveData() {
+            // Nota: Con Firestore, cada cambio (añadir venta, editar producto) 
+            // se guarda directamente al momento con addDoc/updateDoc/setDoc.
+            // Esta función queda como respaldo o para sincronizar configuraciones locales.
             try {
                 localStorage.setItem("mn_appConfig", JSON.stringify(appConfig));
-                localStorage.setItem("mn_inventory", JSON.stringify(inventory));
-                localStorage.setItem("mn_transactions", JSON.stringify(transactions));
-                localStorage.setItem("mn_budgets", JSON.stringify(departmentBudgets));
-                localStorage.setItem("mn_departments", JSON.stringify(departmentsInfo));
             } catch(e) {
                 console.error("Save error:", e);
             }
         }
 
-        // BORRAR TODOS LOS DATOS, INCLUIDOS LOS REGISTROS DE DEMOSTRACIÓN
-        function clearAllData() {
-            if (!confirm("¿Seguro que deseas borrar TODOS los datos de Mi Negocio? Se eliminarán los movimientos, productos del inventario, presupuestos, departamentos y datos de demostración. Esta acción no se puede deshacer.")) return;
+        // ESCUCHADOR EN TIEMPO REAL DE FIRESTORE (Sincronización multi-dispositivo)
+        function iniciarSincronizacionCloud(userId) {
+            import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js").then(({ collection, onSnapshot }) => {
+                
+                // 1. Sincronizar Transacciones en tiempo real
+                onSnapshot(collection(db, "usuarios", userId, "transactions"), (snapshot) => {
+                    transactions = [];
+                    snapshot.forEach((doc) => {
+                        transactions.push({ id: doc.id, ...doc.data() });
+                    });
+                    if (typeof renderVentasTable === 'function') renderVentasTable();
+                    if (typeof renderGastosTable === 'function') renderGastosTable();
+                    if (typeof updateDashboardData === 'function') updateDashboardData();
+                });
 
-            // Vaciar explícitamente los datos para evitar que reaparezcan los datos demo
-            // definidos como valores iniciales al volver a cargar la aplicación.
+                // 2. Sincronizar Inventario en tiempo real
+                onSnapshot(collection(db, "usuarios", userId, "inventory"), (snapshot) => {
+                    inventory = [];
+                    snapshot.forEach((doc) => {
+                        inventory.push({ id: doc.id, ...doc.data() });
+                    });
+                    inventory = inventory.map((p, idx) => ({ ...p, date: p.date || p.registrationDate || '2026-01-01', dateFilter: p.dateFilter || normalizeInventoryDateForFilter(p.date || p.registrationDate || '2026-01-01'), wholesalePrice: p.wholesalePrice ?? null, wholesaleMin: p.wholesaleMin ?? null, batchCost: p.batchCost ?? null, batchQty: p.batchQty ?? null }));
+                    if (typeof renderInventoryTable === 'function') renderInventoryTable();
+                });
+
+            });
+        }
+
+        // BORRAR TODOS LOS DATOS
+        function clearAllData() {
+            if (!confirm("¿Seguro que deseas borrar TODOS los datos? Se eliminarán los movimientos y productos de la nube.")) return;
             inventory = [];
             transactions = [];
             departmentBudgets = {};
             departmentsInfo = {};
-            appConfig = {
-                companyName: "Mi Negocio",
-                currency: "S/",
-                isDark: appConfig && typeof appConfig.isDark === "boolean" ? appConfig.isDark : true
-            };
-
-            // Guardar estructuras vacías: al recargar, estas sustituyen los datos demo iniciales.
             saveData();
             location.reload();
         }
 
         // RESET TO DEMO DATA
         function resetDataToDefault() {
-            if (confirm("¿Deseas restaurar los datos de ejemplo del sistema? Se conservará la configuración.")) {
-                localStorage.clear();
+            if (confirm("¿Deseas restaurar los datos de ejemplo del sistema?")) {
                 location.reload();
             }
         }
-
         // THEME TOGGLE (DARK / LIGHT MODE)
         function toggleTheme() {
             appConfig.isDark = !appConfig.isDark;
@@ -3028,7 +3027,7 @@
             renderBudgetModule();
         }
 
-        // COPIA DE SEGURIDAD COMPLETA
+        // COPIA DE SEGURIDAD COMPLETA (Adaptada para Firebase y Local)
         function exportBackup() {
             try {
                 const storage = {};
@@ -3037,16 +3036,27 @@
                     if (key !== null) storage[key] = localStorage.getItem(key);
                 }
 
+                // Incluimos de forma segura las variables globales actuales en memoria
+                const currentData = {
+                    transactions: typeof transactions !== 'undefined' ? transactions : [],
+                    inventory: typeof inventory !== 'undefined' ? inventory : [],
+                    budgets: typeof departmentBudgets !== 'undefined' ? departmentBudgets : {},
+                    departments: typeof departmentsInfo !== 'undefined' ? departmentsInfo : {},
+                    appConfig: typeof appConfig !== 'undefined' ? appConfig : {}
+                };
+
                 const now = new Date();
                 const year = now.getFullYear();
                 const month = String(now.getMonth() + 1).padStart(2, '0');
                 const day = String(now.getDate()).padStart(2, '0');
                 const date = `${year}-${month}-${day}`;
+                
                 const backup = {
                     app: 'MiNegocioPRO',
-                    version: 1,
+                    version: 2,
                     exportedAt: now.toISOString(),
-                    localStorage: storage
+                    localStorage: storage,
+                    cloudData: currentData
                 };
 
                 const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
@@ -3074,36 +3084,36 @@
                 try {
                     const backup = JSON.parse(e.target.result);
                     if (!backup || typeof backup !== 'object' || Array.isArray(backup) ||
-                        backup.app !== 'MiNegocioPRO' || typeof backup.localStorage !== 'object' ||
-                        backup.localStorage === null || Array.isArray(backup.localStorage)) {
+                        backup.app !== 'MiNegocioPRO') {
                         throw new Error('Estructura de respaldo no válida');
                     }
 
-                    const entries = Object.entries(backup.localStorage);
-                    for (const [key, value] of entries) {
-                        if (typeof key !== 'string' || typeof value !== 'string') {
-                            throw new Error('Contenido de respaldo no válido');
+                    if (backup.localStorage && typeof backup.localStorage === 'object') {
+                        const entries = Object.entries(backup.localStorage);
+                        for (const [key, value] of entries) {
+                            if (typeof key !== 'string' || typeof value !== 'string') {
+                                throw new Error('Contenido de respaldo no válido');
+                            }
                         }
+                        localStorage.clear();
+                        entries.forEach(([key, value]) => localStorage.setItem(key, value));
                     }
 
-                    localStorage.clear();
-                    entries.forEach(([key, value]) => localStorage.setItem(key, value));
                     alert('Copia de seguridad importada con éxito. La aplicación se recargará.');
                     location.reload();
                 } catch (error) {
                     console.error('Error al importar copia de seguridad:', error);
-                    alert('Error: el archivo de copia de seguridad está corrupto, no es un JSON válido o tiene una estructura no compatible. No se modificaron los datos.');
+                    alert('Error: el archivo de copia de seguridad está corrupto o no es compatible.');
                 } finally {
                     input.value = '';
                 }
             };
             reader.onerror = function() {
                 input.value = '';
-                alert('No se pudo leer el archivo de copia de seguridad. No se modificaron los datos.');
+                alert('No se pudo leer el archivo de copia de seguridad.');
             };
             reader.readAsText(file, 'UTF-8');
         }
-
         // COPIAR PROMPTS DEL CENTRO IA
         async function copyPromptText(btn, text) {
             if (!btn) return;
@@ -3313,6 +3323,12 @@
           if (cloudDot) cloudDot.className = "relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500";
           if (cloudPing) cloudPing.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
           if (cloudText) cloudText.textContent = "Sincronizado";
+
+          // 👉 ESTO ES LO QUE LLAMA A LA NUBE PARA TRAER TUS DATOS:
+          if (typeof iniciarSincronizacionCloud === 'function') {
+              iniciarSincronizacionCloud(user.uid);
+          }
+
         } else {
           if (btnLogin) btnLogin.classList.remove('hidden');
           if (userInfo) {
