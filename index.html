@@ -1602,34 +1602,68 @@
             }
         }
 
-        // ESCUCHADOR EN TIEMPO REAL DE FIRESTORE (Sincronización multi-dispositivo)
+        // ESCUCHADOR EN TIEMPO REAL DE FIRESTORE (Sincronización multi-dispositivo con protección de datos)
         function iniciarSincronizacionCloud(userId) {
-            import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js").then(({ collection, onSnapshot }) => {
+            import("https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js").then(({ collection, doc, onSnapshot }) => {
                 
-                // 1. Sincronizar Transacciones en tiempo real
+                // 1. Sincronizar Transacciones (Ventas y Gastos)
                 onSnapshot(collection(db, "usuarios", userId, "transactions"), (snapshot) => {
-                    transactions = [];
-                    snapshot.forEach((doc) => {
-                        transactions.push({ id: doc.id, ...doc.data() });
-                    });
-                    if (typeof renderVentasTable === 'function') renderVentasTable();
-                    if (typeof renderGastosTable === 'function') renderGastosTable();
-                    if (typeof updateDashboardData === 'function') updateDashboardData();
-                });
+                    if (!snapshot.empty) {
+                        transactions = [];
+                        snapshot.forEach((docSnap) => {
+                            transactions.push({ id: docSnap.id, ...docSnap.data() });
+                        });
+                        if (typeof renderVentasTable === 'function') renderVentasTable();
+                        if (typeof renderGastosTable === 'function') renderGastosTable();
+                        if (typeof updateDashboardData === 'function') updateDashboardData();
+                    }
+                }, (err) => console.error("Error al sincronizar transacciones:", err));
 
-                // 2. Sincronizar Inventario en tiempo real
+                // 2. Sincronizar Inventario (Productos)
                 onSnapshot(collection(db, "usuarios", userId, "inventory"), (snapshot) => {
-                    inventory = [];
-                    snapshot.forEach((doc) => {
-                        inventory.push({ id: doc.id, ...doc.data() });
-                    });
-                    inventory = inventory.map((p, idx) => ({ ...p, date: p.date || p.registrationDate || '2026-01-01', dateFilter: p.dateFilter || normalizeInventoryDateForFilter(p.date || p.registrationDate || '2026-01-01'), wholesalePrice: p.wholesalePrice ?? null, wholesaleMin: p.wholesaleMin ?? null, batchCost: p.batchCost ?? null, batchQty: p.batchQty ?? null }));
-                    if (typeof renderInventoryTable === 'function') renderInventoryTable();
-                });
+                    if (!snapshot.empty) {
+                        inventory = [];
+                        snapshot.forEach((docSnap) => {
+                            inventory.push({ id: docSnap.id, ...docSnap.data() });
+                        });
+                        inventory = inventory.map((p) => ({
+                            ...p,
+                            date: p.date || p.registrationDate || '2026-01-01',
+                            dateFilter: p.dateFilter || (typeof normalizeInventoryDateForFilter === 'function' ? normalizeInventoryDateForFilter(p.date || p.registrationDate || '2026-01-01') : ''),
+                            wholesalePrice: p.wholesalePrice ?? null,
+                            wholesaleMin: p.wholesaleMin ?? null,
+                            batchCost: p.batchCost ?? null,
+                            batchQty: p.batchQty ?? null
+                        }));
+                        if (typeof renderInventoryTable === 'function') renderInventoryTable();
+                        if (typeof updateCategorySelects === 'function') updateCategorySelects();
+                        if (typeof populateTxProductDropdown === 'function') populateTxProductDropdown();
+                        if (typeof updateDashboardData === 'function') updateDashboardData();
+                    }
+                }, (err) => console.error("Error al sincronizar inventario:", err));
 
-            });
+                // 3. Sincronizar Presupuestos
+                onSnapshot(doc(db, "usuarios", userId, "config", "budgets"), (docSnap) => {
+                    if (docSnap.exists() && docSnap.data().departmentBudgets) {
+                        departmentBudgets = docSnap.data().departmentBudgets;
+                        if (typeof renderBudgetModule === 'function') renderBudgetModule();
+                    }
+                }, (err) => console.error("Error al sincronizar presupuestos:", err));
+
+                // 4. Sincronizar Departamentos
+                onSnapshot(doc(db, "usuarios", userId, "config", "departments"), (docSnap) => {
+                    if (docSnap.exists() && docSnap.data().departmentsInfo) {
+                        departmentsInfo = docSnap.data().departmentsInfo;
+                        Object.keys(departmentsInfo).forEach(d => {
+                            if (typeof normalizeDepartmentInfo === 'function') normalizeDepartmentInfo(departmentsInfo[d]);
+                        });
+                        if (typeof renderDepartmentModule === 'function') renderDepartmentModule();
+                        if (typeof populateTxDepartmentDropdown === 'function') populateTxDepartmentDropdown();
+                    }
+                }, (err) => console.error("Error al sincronizar departamentos:", err));
+
+            }).catch(err => console.error("Error importando Firestore:", err));
         }
-
         // BORRAR TODOS LOS DATOS
         function clearAllData() {
             if (!confirm("¿Seguro que deseas borrar TODOS los datos? Se eliminarán los movimientos y productos de la nube.")) return;
