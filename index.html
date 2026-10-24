@@ -260,98 +260,6 @@
             border-color: #cbd5e1 !important;
         }
     </style>
-
-    <!-- 1. Cargar la librería SheetJS para generar archivos Excel -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
-    <!-- 2. Módulo JavaScript de Exportación -->
-    <script>
-    async function exportarTodoAExcel() {
-      try {
-        console.log("Iniciando exportación de datos a Excel...");
-
-        // Obtenemos los arreglos de datos de tu app
-        const listaProductos = typeof productos !== 'undefined' ? productos : (window.productos || []);
-        const listaVentas = typeof ventas !== 'undefined' ? ventas : (window.ventas || []);
-        const listaClientes = typeof clientes !== 'undefined' ? clientes : (window.clientes || []);
-        const listaGastos = typeof gastos !== 'undefined' ? gastos : (window.gastos || []);
-
-        // Formatear datos para cada pestaña
-        const datosProductos = listaProductos.map(p => ({
-          "Código / SKU": p.codigo || p.sku || p.id || "",
-          "Producto / Servicio": p.nombre || p.descripcion || "",
-          "Categoría": p.categoria || "Sin categoría",
-          "Precio Costo (S/)": Number(p.precioCosto || p.costo || 0),
-          "Precio Venta (S/)": Number(p.precioVenta || p.precio || 0),
-          "Stock Actual": Number(p.stock || 0),
-          "Stock Mínimo": Number(p.stockMinimo || 0)
-        }));
-
-        const datosVentas = listaVentas.map(v => ({
-          "ID Venta": v.id || "",
-          "Fecha": v.fecha ? new Date(v.fecha).toLocaleDateString("es-PE") : "",
-          "Cliente": v.clienteNombre || v.cliente || "Cliente Varios",
-          "Método de Pago": v.metodoPago || "Efectivo",
-          "Total Venta (S/)": Number(v.total || 0),
-          "Estado": v.estado || "Completado"
-        }));
-
-        const datosClientes = listaClientes.map(c => ({
-          "Nombre / Razón Social": c.nombre || "",
-          "Teléfono / WhatsApp": c.telefono || "",
-          "Documento (DNI/RUC)": c.documento || "",
-          "Correo": c.email || "",
-          "Saldo Pendiente (S/)": Number(c.deuda || c.saldo || 0)
-        }));
-
-        const datosGastos = listaGastos.map(g => ({
-          "Fecha": g.fecha ? new Date(g.fecha).toLocaleDateString("es-PE") : "",
-          "Categoría": g.categoria || "Gasto General",
-          "Concepto": g.concepto || g.descripcion || "",
-          "Monto (S/)": Number(g.monto || 0),
-          "Método de Pago": g.metodoPago || "Efectivo"
-        }));
-
-        // Crear el libro de trabajo de Excel
-        const wb = XLSX.utils.book_new();
-
-        // Agregar las pestañas si contienen información
-        if (datosProductos.length > 0) {
-          const wsProductos = XLSX.utils.json_to_sheet(datosProductos);
-          XLSX.utils.book_append_sheet(wb, wsProductos, "Productos");
-        }
-
-        if (datosVentas.length > 0) {
-          const wsVentas = XLSX.utils.json_to_sheet(datosVentas);
-          XLSX.utils.book_append_sheet(wb, wsVentas, "Ventas");
-        }
-
-        if (datosClientes.length > 0) {
-          const wsClientes = XLSX.utils.json_to_sheet(datosClientes);
-          XLSX.utils.book_append_sheet(wb, wsClientes, "Clientes");
-        }
-
-        if (datosGastos.length > 0) {
-          const wsGastos = XLSX.utils.json_to_sheet(datosGastos);
-          XLSX.utils.book_append_sheet(wb, wsGastos, "Gastos");
-        }
-
-        if (wb.SheetNames.length === 0) {
-          const wsVacio = XLSX.utils.json_to_sheet([{"Estado": "No hay datos para exportar aún"}]);
-          XLSX.utils.book_append_sheet(wb, wsVacio, "Resumen");
-        }
-
-        const fechaHoy = new Date().toISOString().split('T')[0];
-        XLSX.writeFile(wb, `Mi_Negocio_PRO_Respaldo_${fechaHoy}.xlsx`);
-
-        alert("✅ Copia de seguridad descargada exitosamente en Excel.");
-
-      } catch (error) {
-        console.error("Error al exportar los datos:", error);
-        alert("❌ Ocurrió un inconveniente al generar el archivo Excel.");
-      }
-    }
-    </script>
 </head>
 <body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col antialiased transition-colors duration-300">
 
@@ -1507,7 +1415,7 @@
         </div>
     </div>
 
-<!-- MODAL 6: SETTINGS MODAL -->
+    <!-- MODAL 6: SETTINGS MODAL -->
     <div id="settingsModal" class="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm hidden flex items-center justify-center p-4">
         <div class="modal-content glass-card bg-slate-900 border border-slate-700 w-full max-w-md rounded-2xl p-6 shadow-2xl relative space-y-4">
             <div class="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -1536,17 +1444,11 @@
                 </div>
 
                 <div class="pt-3 border-t border-slate-800 space-y-2">
-                    <!-- Nuevo Botón: Respaldo Excel -->
-                    <button type="button" onclick="exportarTodoAExcel()" class="w-full px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition font-bold flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20">
-                        <i class="fa-solid fa-file-excel text-base"></i> Exportar Respaldo Excel (.xlsx)
-                    </button>
-
-                    <!-- Botones Existentes: Respaldo JSON -->
                     <button type="button" onclick="exportBackup()" class="w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition font-medium flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-download text-indigo-400"></i> Exportar Copia JSON
+                        <i class="fa-solid fa-download text-indigo-400"></i> Exportar Copia de Seguridad
                     </button>
                     <button type="button" onclick="document.getElementById('backupFileInput').click()" class="w-full px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition font-medium flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-upload text-indigo-400"></i> Importar Copia JSON
+                        <i class="fa-solid fa-upload text-indigo-400"></i> Importar Copia de Seguridad
                     </button>
                     <input type="file" id="backupFileInput" accept=".json,application/json" class="hidden" onchange="importBackup(event)">
                 </div>
@@ -1558,7 +1460,9 @@
             </form>
         </div>
     </div>
-    
+
+    <script>
+
         // APP GLOBAL STATE
         let appConfig = {
             companyName: "Mi Negocio",
